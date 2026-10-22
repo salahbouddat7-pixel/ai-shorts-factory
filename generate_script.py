@@ -1,66 +1,63 @@
-import urllib.error
+
 import os
 import json
 import urllib.request
+import urllib.error
 
-API_KEY = os.environ["GROQ_API_KEY"]
+api_key = os.environ["GEMINI_API_KEY"]
 
 prompt = """
-Create a compelling 35-second YouTube Short about
+Create an engaging 35-second short video about
 3 terrifying facts about the ocean.
 
-Return ONLY valid JSON with these fields:
-title: a short engaging title
-narration: 75-85 words, factually accurate
-search_queries: list of 5 short stock footage searches
-caption: a social media description
+Return a JSON object containing:
+title: engaging video title
+narration: 75-85 factual words
+search_queries: 5 short stock footage search phrases
+caption: social media description
 
-Make the narration interesting from the first
-sentence. Avoid fabricated facts.
+Avoid fabricated facts. Use an attention-grabbing hook.
 """
 
+url = (
+    "https://generativelanguage.googleapis.com/v1beta/"
+    "models/gemini-2.5-flash:generateContent"
+)
+
 payload = {
-    "model": "llama-3.3-70b-versatile",
-    "temperature": 0.7,
-    "response_format": {"type": "json_object"},
-    "messages": [
-        {
-            "role": "system",
-            "content": "You write factual, engaging short video scripts. Return valid JSON only."
-        },
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ]
+    "contents": [
+        {"parts": [{"text": prompt}]}
+    ],
+    "generationConfig": {
+        "responseMimeType": "application/json"
+    }
 }
 
 request = urllib.request.Request(
-    "https://api.groq.com/openai/v1/chat/completions",
+    url,
     data=json.dumps(payload).encode("utf-8"),
     headers={
-        "Authorization": f"Bearer {API_KEY}",
+        "x-goog-api-key": api_key,
         "Content-Type": "application/json"
     },
     method="POST"
 )
 
 try:
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with urllib.request.urlopen(request, timeout=90) as response:
         result = json.load(response)
-
 except urllib.error.HTTPError as error:
-    print("Groq API status:", error.code)
-    print("Groq API error:", error.read().decode("utf-8"))
+    print("Gemini API status:", error.code)
+    print("Gemini API error:", error.read().decode("utf-8")[:1000])
     raise SystemExit(1)
 
 script = json.loads(
-    result["choices"][0]["message"]["content"]
+    result["candidates"][0]["content"]["parts"][0]["text"]
 )
 
 required = {"title", "narration", "search_queries", "caption"}
 if not required.issubset(script):
-    raise ValueError("AI response is missing required fields")
+    raise ValueError("Missing required script fields")
 
 os.makedirs("output", exist_ok=True)
 
@@ -68,5 +65,5 @@ with open("output/script.json", "w", encoding="utf-8") as file:
     json.dump(script, file, indent=2, ensure_ascii=False)
 
 print("Generated video title:", script["title"])
-print("Narration:", script["narration"])
-print("Stock footage searches:", script["search_queries"])
+print("Script saved successfully")
+
