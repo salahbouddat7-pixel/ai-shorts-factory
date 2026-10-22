@@ -18,15 +18,32 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install video tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak-ng
+          python -m pip install pillow edge-tts
+
       - name: Generate AI video script
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python generate_script.py
 
-      - name: Save generated script
+      - name: Generate narrated MP4
+        run: python make_video.py
+
+      - name: Upload finished video
+        uses: actions/upload-artifact@v4
+        with:
+          name: finished-ai-short
+          path: output/final_short.mp4
+          retention-days: 7
+
+      - name: Upload script
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ai-video-script
           path: output/script.json
-          retention-days: 3
-
+          if-no-files-found: ignore
+          retention-days: 7
