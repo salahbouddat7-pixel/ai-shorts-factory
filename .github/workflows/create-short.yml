@@ -1,49 +1,35 @@
-
-name: AI Shorts Factory
-
+name: Monkey Influencer Factory
 on:
   workflow_dispatch:
-
+  schedule:
+    - cron: '17 16 * * *'
+permissions:
+  contents: read
 jobs:
   create-short:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 25
     steps:
-      - name: Download repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install video tools
+          python-version: '3.11'
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg espeak-ng
+          sudo apt-get install -y ffmpeg espeak-ng fonts-dejavu-core
           python -m pip install pillow edge-tts
-
-      - name: Generate AI video script
+      - name: Write comedy script
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python generate_script.py
-
-      - name: Generate narrated MP4
+      - name: Render monkey video
         run: python make_video.py
-
-      - name: Upload finished video
+      - name: Upload MP4 and script
         uses: actions/upload-artifact@v4
         with:
-          name: finished-ai-short
-          path: output/final_short.mp4
-          retention-days: 7
-
-      - name: Upload script
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-video-script
-          path: output/script.json
-          if-no-files-found: ignore
+          name: monkey-short-${{ github.run_number }}
+          path: |
+            output/final_short.mp4
+            output/script.json
           retention-days: 7
