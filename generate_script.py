@@ -1,43 +1,132 @@
-import json, os, random, re, urllib.request, urllib.error, time
+
+import json
+import os
+import random
+import re
+import time
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 ideas = [
-    'Monkey influencer discovers his selfie camera is on during a serious meeting',
-    'Monkey influencer tries a viral dance but keeps making ridiculous faces',
-    'Monkey influencer pretends to be a millionaire while eating a banana',
-    'Monkey influencer reacts dramatically to seeing his own reflection',
-    'Monkey influencer gives hilariously bad gym advice',
-    'Monkey influencer attempts to look mysterious but sneezes'
+    "Monkey tries a viral dance but keeps making silly faces",
+    "Monkey pretends to be rich while eating a banana",
+    "Monkey sees himself in the selfie camera and panics",
+    "Monkey gives ridiculous gym advice",
+    "Monkey tries to act cool but keeps sneezing"
 ]
+
 idea = random.choice(ideas)
-prompt = f'''Write a funny 18-25 second short-form comedy narration about: {idea}.
-The star is a fictional goofy chimpanzee influencer. Fast hook, visual reaction beats, punchline.
-Return ONLY valid JSON with keys: title (string), narration (45-60 words), caption (string), search_queries (array of five strings).
-No copyrighted song lyrics, no real-person impersonation, no markdown. Keep family friendly.'''
-key = os.environ['OPENROUTER_API_KEY']
-payload = {'model':'openrouter/free','messages':[{'role':'user','content':prompt}], 'temperature':0.8}
-for attempt in range(3):
-    req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=json.dumps(payload).encode(), headers={'Authorization':f'Bearer {key}','Content-Type':'application/json'}, method='POST')
-    try:
-        with urllib.request.urlopen(req, timeout=90) as response:
-            result = json.load(response)
-        break
-    except urllib.error.HTTPError as exc:
-        msg = exc.read().decode(errors='replace')
-        if exc.code in (429,500,502,503,504) and attempt < 2:
-            time.sleep(5 * (attempt + 1)); continue
-        raise RuntimeError(f'OpenRouter error {exc.code}: {msg[:500]}') from exc
-content = result['choices'][0]['message']['content'].strip()
-content = re.sub(r'^```(?:json)?\s*|\s*```$', '', content).strip()
-script = json.loads(content)
-if not all(isinstance(script.get(k), str) and script[k].strip() for k in ('title','narration','caption')):
-    raise ValueError('Invalid text fields in generated script')
-if not isinstance(script.get('search_queries'), list):
-    script['search_queries'] = []
-Path('output').mkdir(exist_ok=True)
-Path('output/script.json').write_text(json.dumps(script, ensure_ascii=False, indent=2), encoding='utf-8')
-print('Generated:', script['title'])
 
+prompt = f"""
+Create a funny 20-second Monkey Influencer short about:
+{idea}
 
+Return ONLY a valid JSON object with these fields:
+"title": string
+"narration": string of 45-60 words
+"caption": string
+"search_queries": array of 5 strings
 
+Use a funny hook, exaggerated facial reactions,
+and a strong punchline. Family-friendly comedy.
+No markdown.
+"""
 
+fallback = {
+    "title": "Monkey Tries to Become Famous",
+    "narration": (
+        "This monkey thinks he's the biggest influencer on the planet. "
+        "He starts recording a dance, makes the weirdest face imaginable, "
+        "and immediately forgets every single move. "
+        "Then he checks his phone, sees one new follower, "
+        "and celebrates like he just won a million dollars. "
+        "Someone please take away his camera!"
+    ),
+    "caption": "This monkey needs to be stopped! #FunnyMonkey #Comedy",
+    "search_queries": []
+}
+
+script = None
+key = os.environ.get("OPENROUTER_API_KEY")
+
+if key:
+    for attempt in range(3):
+        try:
+            payload = {
+                "model": "openrouter/free",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.5
+            }
+
+            request = urllib.request.Request(
+                "https://openrouter.ai/api/v1/chat/completions",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json"
+                },
+                method="POST"
+            )
+
+            with urllib.request.urlopen(request, timeout=90) as response:
+                result = json.load(response)
+
+            content = result["choices"][0]["message"].get("content") or ""
+
+            # Remove markdown fences.
+            content = re.sub(
+                r"^```(?:json)?\s*|\s*```$",
+                "",
+                content.strip()
+            ).strip()
+
+            # Extract a JSON object if the model added extra text.
+            start = content.find("{")
+            end = content.rfind("}")
+
+            if start == -1 or end <= start:
+                raise ValueError("No JSON object in AI response")
+
+            candidate = json.loads(content[start:end + 1])
+
+            if not all(
+                isinstance(candidate.get(k), str)
+                and candidate[k].strip()
+                for k in ("title", "narration", "caption")
+            ):
+                raise ValueError("Missing text fields")
+
+            if not isinstance(candidate.get("search_queries"), list):
+                candidate["search_queries"] = []
+
+            script = candidate
+            print("AI script generated successfully")
+            break
+
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            ValueError,
+            KeyError,
+            TypeError,
+            json.JSONDecodeError
+        ) as error:
+            print(f"Attempt {attempt + 1} failed: {str(error)[:200]}")
+            if attempt < 2:
+                time.sleep(5)
+
+if script is None:
+    print("Using fallback comedy script")
+    script = fallback
+
+Path("output").mkdir(exist_ok=True)
+
+Path("output/script.json").write_text(
+    json.dumps(script, indent=2, ensure_ascii=False),
+    encoding="utf-8"
+)
+
+print("Generated:", script["title"])
