@@ -1,230 +1,90 @@
-
-import asyncio
-import json
-import math
-import os
-import re
-import subprocess
+import asyncio, json, math, random, subprocess
 from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
-from PIL import Image, ImageDraw, ImageFont
+OUT = Path('output'); OUT.mkdir(exist_ok=True)
+script = json.loads((OUT/'script.json').read_text(encoding='utf-8'))
+text = script['narration'].strip()
+source = Path('assets/monkey.png')
+if not source.exists(): raise FileNotFoundError('Upload monkey.png to assets/monkey.png')
 
-OUT = Path("output")
-OUT.mkdir(exist_ok=True)
-
-with open(OUT / "script.json", encoding="utf-8") as f:
-    script = json.load(f)
-
-narration = script["narration"].strip()
-title = script["title"].strip()
-
-def run(command):
-    subprocess.run(command, check=True)
-
+def run(args): subprocess.run(args, check=True)
 def duration(path):
-    result = subprocess.check_output([
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        str(path)
-    ])
-    return float(result.decode().strip())
+    return float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1',str(path)]).decode().strip())
 
-async def make_voice():
+async def speak():
     import edge_tts
-
-    voice = edge_tts.Communicate(
-        narration,
-        "en-US-AriaNeural",
-        rate="+0%"
-    )
-    await voice.save(str(OUT / "voice.mp3"))
-
+    await edge_tts.Communicate(text,'en-US-GuyNeural',rate='+15%').save(str(OUT/'voice.mp3'))
 try:
-    asyncio.run(make_voice())
-    audio = OUT / "voice.mp3"
-    print("Online neural narration generated")
-except Exception as error:
-    print("Online voice unavailable:", str(error)[:200])
-    audio = OUT / "voice.wav"
-    run([
-        "espeak-ng", "-v", "en-us",
-        "-s", "145",
-        "-w", str(audio),
-        narration
-    ])
-    print("Offline narration fallback generated")
+    asyncio.run(speak()); voice=OUT/'voice.mp3'
+except Exception as exc:
+    print('Neural TTS unavailable; offline fallback:', str(exc)[:150])
+    voice=OUT/'voice.wav'
+    run(['espeak-ng','-v','en-us','-s','165','-w',str(voice),text])
 
-audio_duration = duration(audio)
+D = duration(voice)
+W,H=720,1280
+font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+large=ImageFont.truetype(font,48)
+small=ImageFont.truetype(font,30)
+base=Image.open(source).convert('RGB')
+words=text.split()
+count=max(4,min(9,math.ceil(len(words)/8)))
+chunks=[' '.join(words[round(i*len(words)/count):round((i+1)*len(words)/count)]) for i in range(count)]
 
-# Split narration into readable caption scenes.
-words = narration.split()
-scene_count = min(7, max(4, math.ceil(len(words) / 13)))
-scene_count = min(scene_count, len(words))
-scenes = []
-
-for i in range(scene_count):
-    start = round(i * len(words) / scene_count)
-    end = round((i + 1) * len(words) / scene_count)
-    scenes.append(" ".join(words[start:end]))
-
-W, H = 720, 1280
-
-font_path = (
-    "/usr/share/fonts/truetype/dejavu/"
-    "DejaVuSans-Bold.ttf"
-)
-font = ImageFont.truetype(font_path, 48)
-small_font = ImageFont.truetype(font_path, 28)
-
-def wrap_text(draw, text, font, max_width):
-    lines = []
-    current = ""
-
-    for word in text.split():
-        candidate = (current + " " + word).strip()
-        box = draw.textbbox((0, 0), candidate, font=font)
-
-        if box[2] - box[0] > max_width and current:
-            lines.append(current)
-            current = word
-        else:
-            current = candidate
-
-    if current:
-        lines.append(current)
-
+def wrap(draw, caption):
+    lines=[]; current=''
+    for word in caption.split():
+        test=(current+' '+word).strip()
+        if draw.textbbox((0,0),test,font=large)[2]>W-100 and current:
+            lines.append(current); current=word
+        else: current=test
+    if current: lines.append(current)
     return lines
 
-def create_scene(index, caption):
-    img = Image.new("RGB", (W, H))
-    pixels = img.load()
+# Build a sequence of close-ups and wide shots with different expressions from the same reference photo.
+# This is 2D editing, not genuine facial or body motion transfer.
+clips=[]
+fps=24
+frames=math.ceil(D*fps/count)
+for i,caption in enumerate(chunks):
+    image=base.copy()
+    bw,bh=image.size
+    target_ratio=W/H
+    crop_w=min(bw, int(bh*target_ratio))
+    crop_h=int(crop_w/target_ratio)
+    # Alternating face close-ups and full-body views
+    zoom=[1.0,1.32,1.15,1.45][i%4]
+    crop_w=int(crop_w/zoom); crop_h=int(crop_h/zoom)
+    cx=bw*(0.50 if i%4==0 else 0.50)
+    cy=bh*([0.50,0.31,0.43,0.26][i%4])
+    x=max(0,min(bw-crop_w,int(cx-crop_w/2)))
+    y=max(0,min(bh-crop_h,int(cy-crop_h/2)))
+    image=image.crop((x,y,x+crop_w,y+crop_h)).resize((W,H),Image.Resampling.LANCZOS)
+    if i%3==2: image=ImageEnhance.Contrast(image).enhance(1.18)
+    draw=ImageDraw.Draw(image,'RGBA')
+    draw.rounded_rectangle((25,55,W-25,155),radius=25,fill=(0,0,0,170))
+    draw.text((48,84),'MONKEY MODE  /  EPISODE 01',font=small,fill=(255,255,255,255))
+    lines=wrap(draw,caption)
+    box_height=75*len(lines)+65
+    y0=H-230-box_height
+    draw.rounded_rectangle((25,y0,W-25,y0+box_height),radius=28,fill=(0,0,0,190))
+    for j,line in enumerate(lines):
+        bounds=draw.textbbox((0,0),line,font=large)
+        draw.text(((W-(bounds[2]-bounds[0]))/2,y0+27+j*75),line,font=large,fill=(255,255,255,255),stroke_width=2,stroke_fill=(0,0,0,255))
+    still=OUT/f'frame_{i:02d}.png'; image.save(still)
+    clip=OUT/f'clip_{i:02d}.mp4'
+    run(['ffmpeg','-hide_banner','-loglevel','error','-y','-loop','1','-framerate',str(fps),'-i',str(still),'-vf',"zoompan=z='min(zoom+0.00045,1.09)':d=1:s=720x1280:fps=24,format=yuv420p",'-frames:v',str(frames),'-c:v','libx264','-preset','veryfast','-crf','26','-an',str(clip)])
+    clips.append(clip)
+playlist=OUT/'concat.txt'
+playlist.write_text(''.join(f"file '{clip.name}'\n" for clip in clips))
+video=OUT/'silent.mp4'
+run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','concat','-safe','0','-i',str(playlist),'-c','copy',str(video)])
+# A subtle original synthetic beat, mixed quietly under narration.
+final=OUT/'final_short.mp4'
+run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(video),'-i',str(voice),'-f','lavfi','-i','sine=frequency=110:sample_rate=44100','-filter_complex','[2:a]volume=0.012[beat];[1:a][beat]amix=inputs=2:duration=first:dropout_transition=0[a]','-map','0:v:0','-map','[a]','-c:v','copy','-c:a','aac','-b:a','128k','-t',str(D),'-movflags','+faststart',str(final)])
+print('Created:',final,'duration:',round(D,1))
 
-    # Dark ocean gradient.
-    for y in range(H):
-        depth = y / H
-        for x in range(W):
-            wave = math.sin(x / 85 + y / 110 + index)
-            pixels[x, y] = (
-                int(5 + 5 * wave),
-                int(38 - 20 * depth + 5 * wave),
-                int(78 - 38 * depth + 8 * wave)
-            )
-
-    draw = ImageDraw.Draw(img)
-
-    # Decorative ocean rings.
-    for ring in range(5):
-        radius = 110 + ring * 90
-        cx = W // 2
-        cy = 430
-        draw.ellipse(
-            (cx-radius, cy-radius, cx+radius, cy+radius),
-            outline=(25, 90, 125),
-            width=3
-        )
-
-    draw.text(
-        (55, 95),
-        "DEEP OCEAN",
-        font=small_font,
-        fill=(90, 220, 235)
-    )
-
-    lines = wrap_text(draw, caption, font, W - 110)
-    line_height = 67
-    total_height = len(lines) * line_height
-    y = (H - total_height) // 2
-
-    for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
-        width = bbox[2] - bbox[0]
-        draw.text(
-            ((W - width) / 2, y),
-            line,
-            font=font,
-            fill="white",
-            stroke_width=2,
-            stroke_fill=(0, 10, 30)
-        )
-        y += line_height
-
-    draw.text(
-        (55, H - 110),
-        f"FACTS  /  {index+1:02d}",
-        font=small_font,
-        fill=(90, 220, 235)
-    )
-
-    path = OUT / f"scene_{index:02d}.png"
-    img.save(path)
-    return path
-
-segments = []
-fps = 24
-
-# Distribute video time across scenes.
-# Add a small buffer so the last words aren't cut off.
-total_duration = audio_duration + 0.5
-frames_per_scene = math.ceil(total_duration * fps / scene_count)
-
-for i, caption in enumerate(scenes):
-    image = create_scene(i, caption)
-    segment = OUT / f"segment_{i:02d}.mp4"
-
-    run([
-        "ffmpeg", "-y",
-        "-loop", "1",
-        "-framerate", str(fps),
-        "-i", str(image),
-        "-vf",
-        (
-            "zoompan="
-            "z='min(zoom+0.0006,1.12)':"
-            "d=1:"
-            "s=720x1280:"
-            "fps=24,"
-            "format=yuv420p"
-        ),
-        "-frames:v", str(frames_per_scene),
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "25",
-        "-an",
-        str(segment)
-    ])
-    segments.append(segment)
-
-concat_file = OUT / "segments.txt"
-with open(concat_file, "w", encoding="utf-8") as f:
-    for segment in segments:
-        f.write(f"file '{segment.name}'\n")
-
-silent_video = OUT / "silent.mp4"
-
-run([
-    "ffmpeg", "-y",
-    "-f", "concat",
-    "-safe", "0",
-    "-i", str(concat_file),
-    "-c", "copy",
-    str(silent_video)
-])
-
-final_video = OUT / "final_short.mp4"
-
-run([
-    "ffmpeg", "-y",
-    "-i", str(silent_video),
-    "-i", str(audio),
-    "-map", "0:v:0",
-    "-map", "1:a:0",
-    "-c:v", "copy",
-    "-c:a", "aac",
-    "-b:a", "128k",
-    "-t", str(audio_duration),
-    "-movflags", "+faststart",
-    str(final_video)
 ])
 
 print("Video created:", final_video)
