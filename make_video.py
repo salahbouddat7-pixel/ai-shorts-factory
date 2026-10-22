@@ -85,8 +85,4 @@ final=OUT/'final_short.mp4'
 run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(video),'-i',str(voice),'-f','lavfi','-i','sine=frequency=110:sample_rate=44100','-filter_complex','[2:a]volume=0.012[beat];[1:a][beat]amix=inputs=2:duration=first:dropout_transition=0[a]','-map','0:v:0','-map','[a]','-c:v','copy','-c:a','aac','-b:a','128k','-t',str(D),'-movflags','+faststart',str(final)])
 print('Created:',final,'duration:',round(D,1))
 
-])
 
-print("Video created:", final_video)
-print("Title:", title)
-print("Duration:", round(audio_duration, 1), "seconds")
