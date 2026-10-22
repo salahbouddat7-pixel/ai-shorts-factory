@@ -13,27 +13,19 @@ jobs:
       - name: Download repository
         uses: actions/checkout@v4
 
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          ffmpeg -version
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-      - name: Test video rendering
-        run: |
-          mkdir -p output
-          ffmpeg -y \
-            -f lavfi -i "color=c=black:s=1080x1920:r=30" \
-            -f lavfi -i "sine=frequency=440:sample_rate=44100" \
-            -t 5 \
-            -c:v libx264 -preset ultrafast \
-            -pix_fmt yuv420p \
-            -c:a aac \
-            -shortest output/test-short.mp4
+      - name: Generate AI video script
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python generate_script.py
 
-      - name: Save video
+      - name: Save generated script
         uses: actions/upload-artifact@v4
         with:
-          name: test-short
-          path: output/test-short.mp4
+          name: ai-video-script
+          path: output/script.json
           retention-days: 3
