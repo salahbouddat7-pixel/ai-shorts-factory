@@ -16,11 +16,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Generate AI video script
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python generate_script.py
 
       - name: Save generated script
@@ -29,3 +29,4 @@ jobs:
           name: ai-video-script
           path: output/script.json
           retention-days: 3
+
