@@ -1,4 +1,4 @@
-
+import urllib.error
 import os
 import json
 import urllib.request
@@ -45,8 +45,14 @@ request = urllib.request.Request(
     method="POST"
 )
 
-with urllib.request.urlopen(request, timeout=60) as response:
-    result = json.load(response)
+try:
+    with urllib.request.urlopen(request, timeout=60) as response:
+        result = json.load(response)
+
+except urllib.error.HTTPError as error:
+    print("Groq API status:", error.code)
+    print("Groq API error:", error.read().decode("utf-8"))
+    raise SystemExit(1)
 
 script = json.loads(
     result["choices"][0]["message"]["content"]
