@@ -1,4 +1,5 @@
-
+import time
+import random
 import os
 import json
 import urllib.request
@@ -43,27 +44,25 @@ request = urllib.request.Request(
     method="POST"
 )
 
-try:
-    with urllib.request.urlopen(request, timeout=90) as response:
-        result = json.load(response)
-except urllib.error.HTTPError as error:
-    print("Gemini API status:", error.code)
-    print("Gemini API error:", error.read().decode("utf-8")[:1000])
-    raise SystemExit(1)
 
-script = json.loads(
-    result["candidates"][0]["content"]["parts"][0]["text"]
-)
+for attempt in range(5):
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            result = json.load(response)
+        break
 
-required = {"title", "narration", "search_queries", "caption"}
-if not required.issubset(script):
-    raise ValueError("Missing required script fields")
+    except urllib.error.HTTPError as error:
+        status = error.code
+        details = error.read().decode("utf-8", errors="replace")
 
-os.makedirs("output", exist_ok=True)
+        if status in (429, 500, 502, 503, 504) and attempt < 4:
+            wait = min(60, 2 ** (attempt + 2)) + random.uniform(0, 2)
+            print(f"Gemini temporarily unavailable ({status}). Retrying in {wait:.1f}s...")
+            time.sleep(wait)
+            continue
 
-with open("output/script.json", "w", encoding="utf-8") as file:
-    json.dump(script, file, indent=2, ensure_ascii=False)
+        print("Gemini API status:", status)
+        print("Gemini API error:", details[:1000])
+        raise SystemExit(1)
 
-print("Generated video title:", script["title"])
-print("Script saved successfully")
 
